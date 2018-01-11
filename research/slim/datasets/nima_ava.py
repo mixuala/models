@@ -32,7 +32,7 @@ _ITEMS_TO_DESCRIPTIONS = {
   'tags': 'semantic tag ids, dtype=int64, shape=(2,)'
 }
 
-def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
+def get_split(split_name, dataset_dir, file_pattern=None, reader=None, resized=False):
   """Gets a dataset tuple with instructions for reading from TID2013.
 
   Args:
@@ -42,6 +42,8 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
       It is assumed that the pattern contains a '%s' string so that the split
       name can be inserted.
     reader: The TensorFlow reader type.
+    resized: boolean, if True, expects all training images to be resized 
+      to (256,256,3). Use for faster deployment for cloud training.
 
   Returns:
     A `Dataset` namedtuple.
@@ -52,11 +54,15 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
   if split_name not in SPLITS_TO_SIZES:
     raise ValueError('split name %s was not recognized.' % split_name)
 
+  global _CONVERSION_DIR
+  if resized and not _CONVERSION_DIR.endswith('_resized'):
+    _CONVERSION_DIR += '_resized'
+
   if not file_pattern:
     file_pattern = _FILE_PATTERN
   tfrecord_dir = dataset_dir if dataset_dir.endswith(_CONVERSION_DIR) else os.path.join(dataset_dir, _CONVERSION_DIR)
-  
   file_pattern = os.path.join(tfrecord_dir, file_pattern % split_name)
+  print("tfrecord_dir=", tfrecord_dir, file_pattern)
 
   # Allowing None in the signature so that dataset_factory can use the default.
   if reader is None:
@@ -71,8 +77,8 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
     'image/target/mean': tf.FixedLenFeature((), tf.float32),
     'image/target/stddev': tf.FixedLenFeature((), tf.float32),
     'image/tags': tf.FixedLenFeature([2], tf.int64, default_value=tf.zeros([2], dtype=tf.int64)),
-    'image/height': tf.FixedLenFeature([], tf.int64, default_value=tf.zeros([], dtype=tf.int64)),
-    'image/width': tf.FixedLenFeature([], tf.int64, default_value=tf.zeros([], dtype=tf.int64))
+    'image/height': tf.FixedLenFeature((), tf.int64, default_value=0),
+    'image/width': tf.FixedLenFeature((), tf.int64, default_value=0)
   }
 
   items_to_handlers = {
@@ -84,6 +90,8 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
     'stddev': slim.tfexample_decoder.Tensor('image/target/stddev'),
     # TODO: decode tagIds to string values
     'tags': slim.tfexample_decoder.Tensor('image/tags'),
+    'height': slim.tfexample_decoder.Tensor('image/height'),
+    'width': slim.tfexample_decoder.Tensor('image/width'),
   }
 
   decoder = slim.tfexample_decoder.TFExampleDecoder(

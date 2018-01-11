@@ -2,13 +2,13 @@
 
 This module assumes the AVA data has been downloaded and uncompressed.
 
-This module reads the files 
+This module reads the 255510 JPG files 
 that make up the AVA data and creates two TFRecord datasets: one for train
 and one for test. Each TFRecord dataset is comprised of a set of TF-Example
 protocol buffers, each of which contain a single image and label.
 
-The script should take about a minute to run.
-
+The script should take about a 4 hours to run on the full AVA dataset.
+or 2.5 hours on a resized dataset or 3.5 hours on the full dataset
 """
 
 from __future__ import absolute_import
@@ -22,6 +22,8 @@ import re
 import sys
 import numpy as np
 
+import preprocessing.nima_preprocessing as nima_pre
+
 
 import tensorflow as tf
 
@@ -31,8 +33,8 @@ from datasets import dataset_utils
 _DATA_URL = 'http://www.ponomarenko.info/tid2013/tid2013.rar'
 
 
-# The number of images in the validation set.
-_NUM_VALIDATION = 25000
+# The number of images in the validation set. the AVA dataset contains 255510 JPGs
+_NUM_VALIDATION = 25000  # reset on each run()
 
 # Seed for repeatability.
 _RANDOM_SEED = 0
@@ -41,11 +43,37 @@ _RANDOM_SEED = 0
 _NUM_SHARDS = 5
 
 # targets: 
+_TFRECORD_TEMPLATE = 'nima_ava_%s_%04d-of-%04d.tfrecord'
 _TARGETS_FILENAME = 'targets.txt'
 
-# output dir for converted records
-_ARCHIVE_DIR = 'archive'
-_CONVERSION_DIR = 'TFRecords'
+# sub-dirs for inputs, converted TFRecords, and label data
+#   all dirs should exist under `dataset_dir`
+_SOURCE_DIR = 'images'
+_RESIZED_SOURCE_DIR = _SOURCE_DIR +'-256'
+_TARGET_DIR = 'TFRecords'
+_LABEL_DIR = 'labels'
+
+class ImageBasepathByType( object ):
+  """Helper class to derive original and resized file paths for images in dataset """
+  basepath=""
+  resized_basepath=""
+
+  @staticmethod
+  def set_basepaths(basepath, resized_basepath):
+    ImageBasepathByType.basepath = basepath
+    ImageBasepathByType.resized_basepath = resized_basepath
+
+  @staticmethod
+  def original(filename=None):
+    if filename is None:
+      return ImageBasepathByType.basepath
+    return os.path.join(ImageBasepathByType.basepath, os.path.basename(filename))
+
+  @staticmethod
+  def resized(filename=None):
+    if filename is None:
+      return ImageBasepathByType.resized_basepath
+    return os.path.join(ImageBasepathByType.resized_basepath, os.path.basename(filename))
 
 
 class ImageReader(object):
@@ -71,26 +99,24 @@ class ImageReader(object):
 def _dataset_exists(dataset_dir):
   for split_name in ['train', 'validation']:
     for shard_id in range(_NUM_SHARDS):
-      output_filename = _get_dataset_filename(
-          dataset_dir, split_name, shard_id)
+      output_filename = _get_dataset_filename( dataset_dir, split_name, shard_id)
       if not tf.gfile.Exists(output_filename):
         return False
   return True
 
 
 def _get_dataset_filename(dataset_dir, split_name, shard_id):
-  output_filename = 'nima_ava_%s_%04d-of-%04d.tfrecord' % (
-      split_name, shard_id, _NUM_SHARDS)
+  output_filename = _TFRECORD_TEMPLATE % (split_name, shard_id, _NUM_SHARDS)
   return os.path.join(dataset_dir, output_filename)
  
-def _convert_dataset(split_name, filenames, targets, dataset_dir):
+def _convert_dataset(split_name, filenames, targets, target_dir, resized=False):
   """Converts the given filenames to a TFRecord dataset.
 
   Args:
     split_name: The name of the dataset, either 'train' or 'validation'.
     filenames: A list of absolute paths to jpg images.
     targets: A list of tuples [(id, [ratings], [tags]),('1234.jpg', 5.51429, 0.13013),...]
-    dataset_dir: The directory where the converted datasets are stored.
+    target_dir: The directory where the converted datasets are stored.
   """
   assert split_name in ['train', 'validation']
 
@@ -102,59 +128,73 @@ def _convert_dataset(split_name, filenames, targets, dataset_dir):
     with tf.Session('') as sess:
 
       for shard_id in range(_NUM_SHARDS):
-        output_filename = _get_dataset_filename(
-            dataset_dir, split_name, shard_id)
+        output_filename = _get_dataset_filename( target_dir, split_name, shard_id)
 
         with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
           start_ndx = shard_id * num_per_shard
           end_ndx = min((shard_id+1) * num_per_shard, len(filenames))
           for i in range(start_ndx, end_ndx):
-            sys.stdout.write('\r>> Converting image %d/%d shard %d' % (
-                i+1, len(filenames), shard_id))
-            sys.stdout.flush()
+            try:
+              sys.stdout.write('\r>> Converting image %d/%d shard %d' % (
+                  i+1, len(filenames), shard_id))
+              sys.stdout.flush()
 
-            # Read the filename:
-            image_data = tf.gfile.FastGFile(filenames[i], 'rb').read()
-            height, width = image_reader.read_image_dims(sess, image_data)
+              # Read the filename:
+              image_data = tf.gfile.FastGFile(filenames[i], 'rb').read()
+              if split_name=="train" and resized==True:
+                # get original image dimensions
+                original_filename = ImageBasepathByType.original(filenames[i])
+                orig_image_data = tf.gfile.FastGFile(original_filename, 'rb').read()
+                height, width = image_reader.read_image_dims(sess, orig_image_data)
+                # sys.stdout.write('\n     dim=%dx%d size=%d, %d file=%s' % (height, width, 
+                #   len(image_data), len(orig_image_data), original_filename))
+                # sys.stdout.flush()
+              else: 
+                height, width = image_reader.read_image_dims(sess, image_data)
 
-            imageId, ratings, tags = targets[i]
+              imageId, ratings, tags = targets[i]
 
-            example = _image_to_tfexample(
-                image_data, b'jpg', height, width, imageId, ratings, tags)
-            tfrecord_writer.write(example.SerializeToString())
+              example = _image_to_tfexample(
+                  image_data, b'jpg', height, width, imageId, ratings, tags)
+              tfrecord_writer.write(example.SerializeToString())
+            except:
+              sys.stdout.write('\r>> Converting image %d/%d shard %d, EXCEPTION: invalid jpg, file=...%s' % (
+                  i+1, len(filenames), shard_id, filenames[i][-20:]))
+              sys.stdout.flush()
+              # raise
+
 
   sys.stdout.write('\n')
   sys.stdout.flush()
 
 
-def _get_filenames_and_targets(dataset_dir):
+def _get_filenames_and_targets(image_dir):
   """Returns a list of filenames and target of mean opinion scores and stddev.
 
   Args:
-    dataset_dir: A directory containing AVA `JPG` encoded images in subdir `_ARCHIVE_DIR`.
+    image_dir: A directory containing AVA `JPG` encoded images, either full-res or resized (256,256,3).
 
   Returns:
-    A list of image file paths, relative to `dataset_dir` and 
+    A list of image file paths, relative to `image_dir` and 
     list of targets
   """
   global _NUM_VALIDATION
 
-  ava_root = dataset_dir if dataset_dir.endswith(_ARCHIVE_DIR) else dataset_dir + "/" + _ARCHIVE_DIR
-
   ids = []
   image_paths = []
   targets = []
-  for filename in sorted(os.listdir(ava_root)):
+  for filename in sorted(os.listdir(image_dir)):
     # if filename.endswith(".jpg"):
     if re.match('.*\.jpg$', filename, re.I):
       ids.append( int(filename[:-1*len(".jpg")]) ) 
-      path = os.path.join(ava_root, filename)
+      path = os.path.join(image_dir, filename)
       image_paths.append(path)
 
 
   # targets
   # AVA.txt: e.g. `1 953619 0 1 5 17 38 36 15 6 5 1 1 22 1396`
-  target_file = os.path.join(dataset_dir, 'AVA.txt')
+  # e.g. ./images/../labels/AVA.txt
+  target_file = os.path.join(os.path.dirname(image_dir), _LABEL_DIR, 'AVA.txt')
   np_data = np.loadtxt(target_file, dtype=np.int64)
   data_id = np_data[:,1]
   data_ratings = np_data[:,2:12].tolist()
@@ -165,14 +205,16 @@ def _get_filenames_and_targets(dataset_dir):
   targets = list(zip(data_id, data_ratings, data_tags))
   # print("e.g. targets", targets[:3])
 
-    # scale validation if we find fewer filenames
-  if len(ids) < len(data_id):
-    _NUM_VALIDATION = math.ceil(_NUM_VALIDATION*len(ids)/len(data_id))
-    targets = [v for v in targets if v[0] in ids ]   
+  # scale validation if we find fewer filenames
+  if len(ids)/len(data_id) < 0.9 or True:
+    # set validation = 10% of total dataset
+    _NUM_VALIDATION = math.ceil( 0.1 * len(ids) )
+    id_lookup = {}
+    for key in ids: id_lookup[key] = True
+    targets = [ v for v in targets if v[0] in id_lookup ]   
 
     print('\r>> count found filenames=%d, original target rows=%d, validation rows=%d' % (
                 len(ids), len(data_id), _NUM_VALIDATION))
-    # print("targets=", targets) 
 
   return image_paths, sorted(targets, key=lambda v: v[0])
 
@@ -228,8 +270,8 @@ def _image_to_tfexample(image_data, image_format, height, width, imageId, rating
     scores.extend(  [i+1 for _ in range(ratings[i])]  )
   mean = np.mean(scores) 
   stddev = np.std(scores)
-  sys.stdout.write('\n   >  imageId=%s, type(ratings)=%s, ratings=%s, mean=%f' % (imageId, type(ratings), str(ratings), mean))
-  sys.stdout.flush() 
+  # sys.stdout.write('\n   >  imageId=%s, type(ratings)=%s, ratings=%s, mean=%f' % (imageId, type(ratings), str(ratings), mean))
+  # sys.stdout.flush() 
   return tf.train.Example(features=tf.train.Features(feature={
       'image/encoded': bytes_feature(image_data),
       'image/format': bytes_feature(image_format),
@@ -257,13 +299,18 @@ def _write_targets_file(targets, dataset_dir,
       id, ratings, tags = target
       f.write('%s: %s, %s\n' % (id, str(ratings), str(tags)))
 
-
-def run(dataset_dir):
+def run(dataset_dir, resized=False, shards=None):
   """Runs the TFRecord conversion operation.
 
   Args:
-    dataset_dir: The dataset directory where the dataset is stored.
+    dataset_dir: The dataset root directory where the dataset is stored.
+    resized: boolean, if True, use resized JPGs (256,256,3) for conversion
+    shards: override TFRecord shard count
   """
+
+  global _NUM_VALIDATION
+  _NUM_VALIDATION = 25000
+
   if not tf.gfile.Exists(dataset_dir):
     tf.gfile.MakeDirs(dataset_dir)
 
@@ -271,28 +318,46 @@ def run(dataset_dir):
     print('Dataset files already exist. Exiting without re-creating them.')
     return
 
-  # dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
+  if shards is not None:
+    global _NUM_SHARDS
+    _NUM_SHARDS = shards
 
-  photo_filenames, targets = _get_filenames_and_targets(dataset_dir)
+  # prepare for train/validation path manipulation
+  global _SOURCE_DIR, _RESIZED_SOURCE_DIR
+  original_path = os.path.join(dataset_dir, _SOURCE_DIR)
+  resized_path = os.path.join(dataset_dir, _RESIZED_SOURCE_DIR)  # e.g. /images-256/
+  ImageBasepathByType.set_basepaths( original_path, resized_path )
 
-  # Divide into train and test:
+  basepath = ImageBasepathByType.resized() if resized else ImageBasepathByType.original()
+  photo_filenames, targets = _get_filenames_and_targets( basepath )
+  print(">>> converting images from basepath=", basepath)
+
+
+  # Shuffle, then Divide into train and validation:
   random.seed(_RANDOM_SEED)
   random.shuffle(photo_filenames)
   training_filenames = photo_filenames[_NUM_VALIDATION:]
   validation_filenames = photo_filenames[:_NUM_VALIDATION]
 
+  if resized:
+    # after shuffle and train/validation split, we need to recover full size images for validation set
+    validation_filenames = [ImageBasepathByType.original( f ) for f in validation_filenames]
+
   # save conversion output to a subfolder
-  conversion_dir = os.path.join(dataset_dir, _CONVERSION_DIR)
-  if not tf.gfile.Exists(conversion_dir):
-    tf.gfile.MakeDirs(conversion_dir)
+  target_dir = os.path.join(dataset_dir, _TARGET_DIR)
+  if resized and not target_dir.endswith('_resized'):
+    #  e.g. target_dir = 'TFRecords_resized'
+    target_dir += '_resized'
+  if not tf.gfile.Exists(target_dir):
+    tf.gfile.MakeDirs(target_dir)
 
   # First, convert the training and validation sets.
-  _convert_dataset('train', training_filenames, targets, conversion_dir)
-  _convert_dataset('validation', validation_filenames, targets, conversion_dir)
+  _convert_dataset('train', training_filenames, targets, target_dir, resized=resized)
+  _convert_dataset('validation', validation_filenames, targets, target_dir)
 
   
   # Finally, write the targets file:
-  _write_targets_file(targets, conversion_dir)
+  _write_targets_file(targets, target_dir)
 
   # _clean_up_temporary_files(dataset_dir)
   print('\nFinished converting the AVA dataset!')

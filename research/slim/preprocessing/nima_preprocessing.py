@@ -33,6 +33,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+from tensorflow.python.ops import control_flow_ops
 
 slim = tf.contrib.slim
 
@@ -42,6 +43,24 @@ _B_MEAN = 103.94
 
 _RESIZE_SIDE_MIN = 256
 _RESIZE_SIDE_MAX = 512
+
+def apply_with_random_selector(x, func, num_cases):
+  """Computes func(x, sel), with sel sampled from [0...num_cases-1].
+
+  Args:
+    x: input Tensor.
+    func: Python function to apply.
+    num_cases: Python int32, number of cases to sample sel from.
+
+  Returns:
+    The result of func(x, sel), where func receives the value of the
+    selector as a python integer, but sel is sampled dynamically.
+  """
+  sel = tf.random_uniform([], maxval=num_cases, dtype=tf.int32)
+  # Pass the real x only to one of the func calls.
+  return control_flow_ops.merge([
+      func(control_flow_ops.switch(x, tf.equal(sel, case))[1], case)
+      for case in range(num_cases)])[0]
 
 
 def _crop(image, offset_height, offset_width, crop_height, crop_width):
@@ -283,11 +302,47 @@ def _aspect_preserving_resize(image, smallest_side):
   return resized_image
 
 
+
+def resize_jpg(image, output_height=256, output_width=256):
+  """ resize jpg, do NOT preserve aspect ratio """
+  # This resizing operation may distort the images because the aspect
+  # ratio is not respected. We select a resize method in a round robin
+  # fashion based on the thread number.
+  # Note that ResizeMethod contains 4 enumerated resizing methods.
+  #   ResizeMethod.BILINEAR: Bilinear interpolation.
+  #   ResizeMethod.NEAREST_NEIGHBOR: Nearest neighbor interpolation.
+  #   ResizeMethod.BICUBIC: Bicubic interpolation.
+  #   ResizeMethod.AREA: Area interpolation.
+
+  """ to resize in OSX
+  export SOURCE=/Volumes/data/DATASETS/AVA/images
+  export TARGET=/snappi.ai/tensorflow/nima/data/ava-256
+  mkdir -p $TARGET
+  for f in $SOURCE/*.jpg; do
+    sips -z 256 256 --setProperty formatOptions high \
+      $f --out $TARGET
+  done
+  """
+
+  # We select only 1 case for fast_mode bilinear.
+  num_resize_cases = 4
+  resized_image = apply_with_random_selector(
+      image,
+      lambda x, method: tf.image.resize_images(x, 
+          [output_height, 
+          output_width], 
+          method, 
+          align_corners=False),
+      num_cases=num_resize_cases)
+  return resized_image
+
+
 def preprocess_for_train(image,
                          output_height,
                          output_width,
                          resize_side_min=_RESIZE_SIDE_MIN,
-                         resize_side_max=_RESIZE_SIDE_MAX):
+                         resize_side_max=_RESIZE_SIDE_MAX,
+                         resized=False):
   """Preprocesses the given image for training.
 
   Note that the actual resizing scale is sampled from
@@ -306,28 +361,30 @@ def preprocess_for_train(image,
     A preprocessed image.
   """
 
-  resize_side = tf.random_uniform(
+  if not resized:
+    # resize to 256x256
+    # print("preprocess_for_train(): resizing image to (256,256,3)")
+    resize_side = tf.random_uniform(
       [], minval=resize_side_min, maxval=resize_side_max+1, dtype=tf.int32)
+    image = tf.image.resize_images(image, 
+              [resize_side_min, resize_side_min],
+              method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
+              align_corners=False
+              )
 
-  ### OK
-  # image = _central_crop([image], output_height, output_width)[0] 
-
-  # image = _aspect_preserving_resize(image, resize_side)
-
-  ### resize to 255x255, then randomly crop to 224x244
-  image = tf.image.resize_images(image, 
-            [resize_side_min, resize_side_min],
-            method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
-            align_corners=False
-            )
-
+  # then randomly crop to 224x244
   image = _random_crop([image], output_height, output_width)[0]
   image.set_shape([output_height, output_width, 3])
 
-  image = tf.to_float(image)
+  ### NOTE: to_float() causes image to appear "different"
+  # image = tf.to_float(image)
+  image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+
   image = tf.image.random_flip_left_right(image)
-  # # for vgg16 only
+
+  # for Vgg16 CNNs
   # image = _mean_image_subtraction(image, [_R_MEAN, _G_MEAN, _B_MEAN])
+
   return image
 
 
@@ -352,7 +409,8 @@ def preprocess_for_eval(image, output_height, output_width, resize_side):
 
 def preprocess_image(image, output_height, output_width, is_training=False,
                      resize_side_min=_RESIZE_SIDE_MIN,
-                     resize_side_max=_RESIZE_SIDE_MAX):
+                     resize_side_max=_RESIZE_SIDE_MAX,
+                     resized=False):
   """Preprocesses the given image.
 
   Args:
@@ -368,13 +426,15 @@ def preprocess_image(image, output_height, output_width, is_training=False,
       aspect-preserving resizing. If `is_training` is `False`, this value is
       ignored. Otherwise, the resize side is sampled from
         [resize_size_min, resize_size_max].
+    resized: boolean, the image has already been resized to (256,256,3)
 
   Returns:
     A preprocessed image.
   """
   if is_training:
     return preprocess_for_train(image, output_height, output_width,
-                                resize_side_min, resize_side_max)
+                                resize_side_min, resize_side_max, 
+                                resized=resized)
   else:
     return preprocess_for_eval(image, output_height, output_width,
                                resize_side_min)
