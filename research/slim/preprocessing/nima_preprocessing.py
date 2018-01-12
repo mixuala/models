@@ -376,13 +376,14 @@ def preprocess_for_train(image,
   image = _random_crop([image], output_height, output_width)[0]
   image.set_shape([output_height, output_width, 3])
 
-  ### NOTE: to_float() causes image to appear "different"
+  ### NOTE: to_float() causes image to appear "different", use tf.image.convert_image_dtype()
   # image = tf.to_float(image)
   image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 
   image = tf.image.random_flip_left_right(image)
 
   # for Vgg16 CNNs
+  # BUG: values must be [0..1]
   # image = _mean_image_subtraction(image, [_R_MEAN, _G_MEAN, _B_MEAN])
 
   return image
@@ -403,7 +404,8 @@ def preprocess_for_eval(image, output_height, output_width, resize_side):
   image = _aspect_preserving_resize(image, resize_side)
   image = _central_crop([image], output_height, output_width)[0]
   image.set_shape([output_height, output_width, 3])
-  image = tf.to_float(image)
+  # image = tf.to_float(image)
+  image = tf.image.convert_image_dtype(image, dtype=tf.float32)
   return _mean_image_subtraction(image, [_R_MEAN, _G_MEAN, _B_MEAN])
 
 

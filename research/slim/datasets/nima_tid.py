@@ -74,6 +74,8 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
     'id': slim.tfexample_decoder.Tensor('image/id'),
     'mean': slim.tfexample_decoder.Tensor('image/target/mean'),
     'stddev': slim.tfexample_decoder.Tensor('image/target/stddev'),
+    'height': slim.tfexample_decoder.Tensor('image/height'),
+    'width': slim.tfexample_decoder.Tensor('image/width'),
   }
 
   decoder = slim.tfexample_decoder.TFExampleDecoder(
