@@ -37,7 +37,7 @@ _NUM_VALIDATION = 350
 _RANDOM_SEED = 0
 
 # The number of shards per dataset split.
-_NUM_SHARDS = 5
+_NUM_SHARDS = 4
 
 # targets: 
 _TARGETS_FILENAME = 'targets.txt'
@@ -45,6 +45,14 @@ _TARGETS_FILENAME = 'targets.txt'
 # output dir for converted records
 _ARCHIVE_DIR = 'archive'
 _CONVERSION_DIR = 'TFRecords'
+
+# sub-dirs for inputs, converted TFRecords, and label data
+#   all dirs should exist under `dataset_dir`
+_SOURCE_DIR = 'images'
+_TARGET_DIR = 'TFRecords'
+# _SOURCE_DIR = 'images-256'
+# _TARGET_DIR = 'TFRecords_resized'
+_LABEL_DIR = 'labels'
 
 class ImageReader(object):
   """Helper class that provides TensorFlow image coding utilities for BMPs."""
@@ -127,37 +135,37 @@ def _convert_dataset(split_name, filenames, targets, dataset_dir):
   sys.stdout.flush()
 
 
-def _get_filenames_and_targets(dataset_dir):
+def _get_filenames_and_targets(image_dir):
   """Returns a list of filenames and target of mean opinion scores and stddev.
 
   Args:
-    dataset_dir: A directory containing TID2013 `BMP` encoded images.
+    image_dir: A directory containing TID2013 `BMP` encoded images.
 
   Returns:
-    A list of image file paths, relative to `dataset_dir` and 
+    A list of image file paths, relative to `image_dir` and 
     list of targets
   """
 
   global _NUM_VALIDATION
 
-  # tid_root = os.path.join(dataset_dir, 'raw_archive')
-  tid_root = dataset_dir if dataset_dir.endswith(_ARCHIVE_DIR) else dataset_dir + "/" + _ARCHIVE_DIR
+  # tid_root = os.path.join(image_dir, 'raw_archive')
 
   image_paths = []
   ids = []
   targets = []
-  for filename in sorted(os.listdir(tid_root)):
+  for filename in sorted(os.listdir(image_dir)):
     # if filename.endswith(".bmp"):
     if re.match('.*\.bmp$', filename, re.I):
       ids.append(filename)
-      path = os.path.join(tid_root, filename)
+      path = os.path.join(image_dir, filename)
       image_paths.append(path)
 
 
   # targets
   # mos_with_names.txt: e.g. `5.51429 I01_01_1.bmp`
  
-  target_mean_file = os.path.join(tid_root, 'mos_with_names.txt')
+  # target_mean_file = os.path.join(image_dir, 'mos_with_names.txt')
+  target_mean_file = os.path.join(os.path.dirname(image_dir), _LABEL_DIR, 'mos_with_names.txt')
   target_mean = []
 
   with tf.gfile.Open(target_mean_file, 'r') as f:
@@ -166,7 +174,8 @@ def _get_filenames_and_targets(dataset_dir):
     target_mean = [line.strip().split(' ') for line in f.readlines()]
 
   # mos_std.txt: e.g. `0.13013`
-  target_stddev_file = os.path.join(tid_root, 'mos_std.txt')
+  # target_stddev_file = os.path.join(image_dir, 'mos_std.txt')
+  target_stddev_file = os.path.join(os.path.dirname(image_dir), _LABEL_DIR, 'mos_std.txt')
   target_stddev = []
   with tf.gfile.Open(target_stddev_file, 'r') as f:
     target_stddev = [line.strip() for line in f.readlines()]
@@ -255,6 +264,19 @@ def _write_targets_file(targets, dataset_dir,
 
 
 
+  """ to resize in OSX
+  export SOURCE=/snappi.ai/tensorflow/nima/data/tid/images
+  export TARGET=/snappi.ai/tensorflow/nima/data/tid/images-256
+  mkdir -p $TARGET
+  for f in $SOURCE/*.bmp; do
+    sips -z 256 256 $f --out $TARGET
+  done
+  for f in $SOURCE/*.BMP; do
+    sips -z 256 256 $f --out $TARGET
+  done
+  """
+
+
 def run(dataset_dir):
   """Runs the TFRecord conversion operation.
 
@@ -269,8 +291,9 @@ def run(dataset_dir):
     return
 
   # dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
-
-  photo_filenames, targets = _get_filenames_and_targets(dataset_dir)
+  global _SOURCE_DIR
+  image_dir = os.path.join(dataset_dir, _SOURCE_DIR)
+  photo_filenames, targets = _get_filenames_and_targets(image_dir)
   # print('\r>> count filenames=%d, target rows=%d, validation rows=%d' % ( len(photo_filenames), len(targets), _NUM_VALIDATION))
 
   # Divide into train and test:
@@ -280,7 +303,7 @@ def run(dataset_dir):
   validation_filenames = photo_filenames[:_NUM_VALIDATION]
 
   # save conversion output to a subfolder
-  conversion_dir = os.path.join(dataset_dir, _CONVERSION_DIR)
+  conversion_dir = os.path.join(dataset_dir, _TARGET_DIR)
   if not tf.gfile.Exists(conversion_dir):
     tf.gfile.MakeDirs(conversion_dir)
 
