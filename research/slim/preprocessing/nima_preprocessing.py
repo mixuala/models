@@ -242,6 +242,7 @@ def _mean_image_subtraction(image, means):
     raise ValueError('len(means) must match the number of channels')
 
   channels = tf.split(axis=2, num_or_size_splits=num_channels, value=image)
+
   for i in range(num_channels):
     channels[i] -= means[i]
   return tf.concat(axis=2, values=channels)
@@ -363,11 +364,11 @@ def preprocess_for_train(image,
 
   if not resized:
     # resize to 256x256
-    # print("preprocess_for_train(): resizing image to (256,256,3)")
-    resize_side = tf.random_uniform(
-      [], minval=resize_side_min, maxval=resize_side_max+1, dtype=tf.int32)
+    print("preprocess_for_train(): resizing image to (256,256,3)")
+    # resize_side = tf.random_uniform(
+    #   [], minval=resize_side_min, maxval=resize_side_max+1, dtype=tf.int32)
     image = tf.image.resize_images(image, 
-              [resize_side_min, resize_side_min],
+              [256,256],
               method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
               align_corners=False
               )
@@ -376,16 +377,14 @@ def preprocess_for_train(image,
   image = _random_crop([image], output_height, output_width)[0]
   image.set_shape([output_height, output_width, 3])
 
-  ### NOTE: to_float() causes image to appear "different", use tf.image.convert_image_dtype()
-  # image = tf.to_float(image)
-  image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-
+  ### NOTE: to_float() causes problems with plt.imshow() becuse of 
+  #     negative values after _mean_image_subtraction()
+  #     be sure to use plt.imshow( np_image.astype(np.uint8) )
+  # 
+  # for Vgg16 CNNs, subtract normalized mean values
+  image = tf.to_float(image)
+  image = _mean_image_subtraction(image, [_R_MEAN, _G_MEAN, _B_MEAN])
   image = tf.image.random_flip_left_right(image)
-
-  # for Vgg16 CNNs
-  # BUG: values must be [0..1]
-  # image = _mean_image_subtraction(image, [_R_MEAN, _G_MEAN, _B_MEAN])
-
   return image
 
 
