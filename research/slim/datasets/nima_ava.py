@@ -62,7 +62,7 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None, resized=F
     file_pattern = _FILE_PATTERN
   tfrecord_dir = dataset_dir if dataset_dir.endswith(_CONVERSION_DIR) else os.path.join(dataset_dir, _CONVERSION_DIR)
   file_pattern = os.path.join(tfrecord_dir, file_pattern % split_name)
-  print("tfrecord_dir=", tfrecord_dir, file_pattern)
+  print(">> TFRecord_dir=%s, \n>> pattern=%s" % (tfrecord_dir, os.path.basename(file_pattern)) )
 
   # Allowing None in the signature so that dataset_factory can use the default.
   if reader is None:
