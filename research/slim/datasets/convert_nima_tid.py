@@ -31,7 +31,7 @@ _DATA_URL = 'http://www.ponomarenko.info/tid2013/tid2013.rar'
 
 
 # The number of images in the validation set.
-_NUM_VALIDATION = 350
+_NUM_VALIDATION = 670
 
 # Seed for repeatability.
 _RANDOM_SEED = 0

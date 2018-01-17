@@ -34,7 +34,7 @@ _DATA_URL = 'http://www.ponomarenko.info/tid2013/tid2013.rar'
 
 
 # The number of images in the validation set. the AVA dataset contains 255510 JPGs
-_NUM_VALIDATION = 25000  # reset on each run()
+_NUM_VALIDATION = 50000  # reset on each run()
 
 # Seed for repeatability.
 _RANDOM_SEED = 0
@@ -205,10 +205,10 @@ def _get_filenames_and_targets(image_dir):
   targets = list(zip(data_id, data_ratings, data_tags))
   # print("e.g. targets", targets[:3])
 
-  # scale validation if we find fewer filenames
+  # scale validation if we find < 90% fewer filenames
   if len(ids)/len(data_id) < 0.9 or True:
-    # set validation = 10% of total dataset
-    _NUM_VALIDATION = math.ceil( 0.1 * len(ids) )
+    # set validation = 20% of total dataset
+    _NUM_VALIDATION = math.ceil( 0.2 * len(ids) )
     id_lookup = {}
     for key in ids: id_lookup[key] = True
     targets = [ v for v in targets if v[0] in id_lookup ]   

@@ -19,7 +19,7 @@ slim = tf.contrib.slim
 _FILE_PATTERN = 'nima_ava_%s_*.tfrecord'
 
 # total files=255530
-SPLITS_TO_SIZES = {'train': 230000, 'validation': 25530}
+SPLITS_TO_SIZES = {'train': 205530, 'validation': 50000}
 
 _CONVERSION_DIR = 'TFRecords'
 

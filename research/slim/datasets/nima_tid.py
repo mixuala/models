@@ -18,7 +18,7 @@ slim = tf.contrib.slim
 
 _FILE_PATTERN = 'nima_tid_%s_*.tfrecord'
 
-SPLITS_TO_SIZES = {'train': 3320, 'validation': 350}
+SPLITS_TO_SIZES = {'train': 3000 , 'validation': 670}
 
 _CONVERSION_DIR = 'TFRecords'
 
