@@ -19,7 +19,7 @@ slim = tf.contrib.slim
 _FILE_PATTERN = 'nima_ava_%s_*.tfrecord'
 
 # total files=255530
-SPLITS_TO_SIZES = {'train': 205530, 'validation': 50000}
+SPLITS_TO_SIZES = {'train': 204408, 'validation': 51102}
 
 _CONVERSION_DIR = 'TFRecords'
 
@@ -37,7 +37,8 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None, resized=F
 
   Args:
     split_name: A train/validation split name.
-    dataset_dir: The base directory of the dataset sources.
+    dataset_dir: The base directory of the dataset sources, OR 
+      a list of GCP Storage files, e.g. !gsutil ls gs://[bucket]/*.tfrecord
     file_pattern: The file pattern to use when matching the dataset sources.
       It is assumed that the pattern contains a '%s' string so that the split
       name can be inserted.
@@ -54,15 +55,21 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None, resized=F
   if split_name not in SPLITS_TO_SIZES:
     raise ValueError('split name %s was not recognized.' % split_name)
 
-  global _CONVERSION_DIR
-  if resized and not _CONVERSION_DIR.endswith('_resized'):
-    _CONVERSION_DIR += '_resized'
+  if type(dataset_dir)==list:
+    # support for GCP storage, convert wildcard to re
+    search = _FILE_PATTERN.replace('*','.*') % "train"
+    file_pattern = [f for f in AVA if re.search(search, f)]
+  else:
+    global _CONVERSION_DIR
+    if resized and not _CONVERSION_DIR.endswith('_resized'):
+      _CONVERSION_DIR += '_resized'
 
-  if not file_pattern:
-    file_pattern = _FILE_PATTERN
-  tfrecord_dir = dataset_dir if dataset_dir.endswith(_CONVERSION_DIR) else os.path.join(dataset_dir, _CONVERSION_DIR)
-  file_pattern = os.path.join(tfrecord_dir, file_pattern % split_name)
-  print(">> TFRecord_dir=%s, \n>> pattern=%s" % (tfrecord_dir, os.path.basename(file_pattern)) )
+    if not file_pattern:
+      file_pattern = _FILE_PATTERN
+    tfrecord_dir = dataset_dir if dataset_dir.endswith(_CONVERSION_DIR) else os.path.join(dataset_dir, _CONVERSION_DIR)
+    file_pattern = os.path.join(tfrecord_dir, file_pattern % split_name)
+    print(">> TFRecord_dir=%s, \n>> pattern=%s" % (tfrecord_dir, os.path.basename(file_pattern)) )
+  
 
   # Allowing None in the signature so that dataset_factory can use the default.
   if reader is None:

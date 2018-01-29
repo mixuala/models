@@ -34,7 +34,7 @@ _DATA_URL = 'http://www.ponomarenko.info/tid2013/tid2013.rar'
 
 
 # The number of images in the validation set. the AVA dataset contains 255510 JPGs
-_NUM_VALIDATION = 50000  # reset on each run()
+_NUM_VALIDATION = 51102  # 20% test, reset on each run()
 
 # Seed for repeatability.
 _RANDOM_SEED = 0
@@ -158,7 +158,7 @@ def _convert_dataset(split_name, filenames, targets, target_dir, resized=False):
                   image_data, b'jpg', height, width, imageId, ratings, tags)
               tfrecord_writer.write(example.SerializeToString())
             except:
-              sys.stdout.write('\r>> Converting image %d/%d shard %d, EXCEPTION: invalid jpg, file=...%s' % (
+              sys.stdout.write('\n>> Converting image %d/%d shard %d, EXCEPTION: invalid jpg, file=...%s' % (
                   i+1, len(filenames), shard_id, filenames[i][-20:]))
               sys.stdout.flush()
               # raise
@@ -309,7 +309,7 @@ def run(dataset_dir, resized=False, shards=None):
   """
 
   global _NUM_VALIDATION
-  _NUM_VALIDATION = 25000
+  _NUM_VALIDATION = 51102
 
   if not tf.gfile.Exists(dataset_dir):
     tf.gfile.MakeDirs(dataset_dir)
