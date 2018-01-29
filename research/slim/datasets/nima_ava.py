@@ -63,7 +63,7 @@ def get_split(split_name, dataset_dir, file_list=None, file_pattern=None, reader
     search = _FILE_PATTERN.replace('*','.*') % "train"
     file_pattern = [f for f in file_list if re.search(search, f)]
 
-  else
+  else:
     global _CONVERSION_DIR
     if resized and not _CONVERSION_DIR.endswith('_resized'):
       _CONVERSION_DIR += '_resized'
