@@ -32,13 +32,15 @@ _ITEMS_TO_DESCRIPTIONS = {
   'tags': 'semantic tag ids, dtype=int64, shape=(2,)'
 }
 
-def get_split(split_name, dataset_dir, file_pattern=None, reader=None, resized=False):
+def get_split(split_name, dataset_dir, file_list=None, file_pattern=None, reader=None, resized=False):
   """Gets a dataset tuple with instructions for reading from TID2013.
 
   Args:
     split_name: A train/validation split name.
-    dataset_dir: The base directory of the dataset sources, OR 
-      a list of GCP Storage files, e.g. !gsutil ls gs://[bucket]/*.tfrecord
+    dataset_dir: The base directory of the dataset sources, 
+    file_list: 
+      a list of full paths or GCP Storage files, e.g. !gsutil ls gs://[bucket]/*.tfrecord
+      overrides dataset_dir
     file_pattern: The file pattern to use when matching the dataset sources.
       It is assumed that the pattern contains a '%s' string so that the split
       name can be inserted.
@@ -55,11 +57,13 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None, resized=F
   if split_name not in SPLITS_TO_SIZES:
     raise ValueError('split name %s was not recognized.' % split_name)
 
-  if type(dataset_dir)==list:
+  if file_list:
+    # expecting list or IPython.utils.text.SList, overrides dataset_dir
     # support for GCP storage, convert wildcard to re
     search = _FILE_PATTERN.replace('*','.*') % "train"
-    file_pattern = [f for f in AVA if re.search(search, f)]
-  else:
+    file_pattern = [f for f in file_list if re.search(search, f)]
+
+  else
     global _CONVERSION_DIR
     if resized and not _CONVERSION_DIR.endswith('_resized'):
       _CONVERSION_DIR += '_resized'
