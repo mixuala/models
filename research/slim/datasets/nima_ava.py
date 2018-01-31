@@ -61,7 +61,7 @@ def get_split(split_name, dataset_dir, file_list=None, file_pattern=None, reader
   if file_list:
     # expecting list or IPython.utils.text.SList, overrides dataset_dir
     # support for GCP storage, convert wildcard to re
-    search = _FILE_PATTERN.replace('*','.*') % "train"
+    search = _FILE_PATTERN.replace('*','.*') % split_name
     file_pattern = [f for f in file_list if re.search(search, f)]
 
   else:
