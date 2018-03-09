@@ -78,5 +78,5 @@ def get_preprocessing(name, is_training=False):
   def preprocessing_fn(image, output_height, output_width, **kwargs):
     return preprocessing_fn_map[name].preprocess_image(
         image, output_height, output_width, **kwargs)
-
+  preprocessing_fn.lib = preprocessing_fn_map[name]  # lookup to know kwargs  
   return preprocessing_fn

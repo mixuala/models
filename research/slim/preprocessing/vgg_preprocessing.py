@@ -286,6 +286,7 @@ def _aspect_preserving_resize(image, smallest_side):
 def preprocess_for_train(image,
                          output_height,
                          output_width,
+                         resized=False,                         
                          resize_side_min=_RESIZE_SIDE_MIN,
                          resize_side_max=_RESIZE_SIDE_MAX):
   """Preprocesses the given image for training.
@@ -305,10 +306,11 @@ def preprocess_for_train(image,
   Returns:
     A preprocessed image.
   """
-  resize_side = tf.random_uniform(
-      [], minval=resize_side_min, maxval=resize_side_max+1, dtype=tf.int32)
+  if not resized:
+    resize_side = tf.random_uniform(
+        [], minval=resize_side_min, maxval=resize_side_max+1, dtype=tf.int32)
+    image = _aspect_preserving_resize(image, resize_side)
 
-  image = _aspect_preserving_resize(image, resize_side)
   image = _random_crop([image], output_height, output_width)[0]
   image.set_shape([output_height, output_width, 3])
   image = tf.to_float(image)
@@ -316,7 +318,9 @@ def preprocess_for_train(image,
   return _mean_image_subtraction(image, [_R_MEAN, _G_MEAN, _B_MEAN])
 
 
-def preprocess_for_eval(image, output_height, output_width, resize_side):
+def preprocess_for_eval(image, output_height, output_width, resize_side,
+                        resized=False,
+  ):
   """Preprocesses the given image for evaluation.
 
   Args:
@@ -328,7 +332,9 @@ def preprocess_for_eval(image, output_height, output_width, resize_side):
   Returns:
     A preprocessed image.
   """
-  image = _aspect_preserving_resize(image, resize_side)
+  if not resized:
+    image = _aspect_preserving_resize(image, resize_side)
+
   image = _central_crop([image], output_height, output_width)[0]
   image.set_shape([output_height, output_width, 3])
   image = tf.to_float(image)
@@ -337,7 +343,8 @@ def preprocess_for_eval(image, output_height, output_width, resize_side):
 
 def preprocess_image(image, output_height, output_width, is_training=False,
                      resize_side_min=_RESIZE_SIDE_MIN,
-                     resize_side_max=_RESIZE_SIDE_MAX):
+                     resize_side_max=_RESIZE_SIDE_MAX,
+                     **kwargs):
   """Preprocesses the given image.
 
   Args:
@@ -359,7 +366,7 @@ def preprocess_image(image, output_height, output_width, is_training=False,
   """
   if is_training:
     return preprocess_for_train(image, output_height, output_width,
-                                resize_side_min, resize_side_max)
+                                resize_side_min, resize_side_max, **kwargs)
   else:
     return preprocess_for_eval(image, output_height, output_width,
-                               resize_side_min)
+                               resize_side_min, **kwargs)

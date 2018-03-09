@@ -96,6 +96,89 @@ def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
     return tf.clip_by_value(image, 0.0, 1.0)
 
 
+def _random_crop(image_list, crop_height, crop_width):
+  """Crops the given list of images.
+
+  The function applies the same crop to each image in the list. This can be
+  effectively applied when there are multiple image inputs of the same
+  dimension such as:
+
+    image, depths, normals = _random_crop([image, depths, normals], 120, 150)
+
+  Args:
+    image_list: a list of image tensors of the same dimension but possibly
+      varying channel.
+    crop_height: the new height.
+    crop_width: the new width.
+
+  Returns:
+    the image_list with cropped images.
+
+  Raises:
+    ValueError: if there are multiple image inputs provided with different size
+      or the images are smaller than the crop dimensions.
+  """
+  if not image_list:
+    raise ValueError('Empty image_list.')
+
+  # Compute the rank assertions.
+  rank_assertions = []
+  for i in range(len(image_list)):
+    image_rank = tf.rank(image_list[i])
+    rank_assert = tf.Assert(
+        tf.equal(image_rank, 3),
+        ['Wrong rank for tensor  %s [expected] [actual]',
+         image_list[i].name, 3, image_rank])
+    rank_assertions.append(rank_assert)
+
+  with tf.control_dependencies([rank_assertions[0]]):
+    image_shape = tf.shape(image_list[0])
+  image_height = image_shape[0]
+  image_width = image_shape[1]
+  crop_size_assert = tf.Assert(
+      tf.logical_and(
+          tf.greater_equal(image_height, crop_height),
+          tf.greater_equal(image_width, crop_width)),
+      ['Crop size greater than the image size.'])
+
+  asserts = [rank_assertions[0], crop_size_assert]
+
+  for i in range(1, len(image_list)):
+    image = image_list[i]
+    asserts.append(rank_assertions[i])
+    with tf.control_dependencies([rank_assertions[i]]):
+      shape = tf.shape(image)
+    height = shape[0]
+    width = shape[1]
+
+    height_assert = tf.Assert(
+        tf.equal(height, image_height),
+        ['Wrong height for tensor %s [expected][actual]',
+         image.name, height, image_height])
+    width_assert = tf.Assert(
+        tf.equal(width, image_width),
+        ['Wrong width for tensor %s [expected][actual]',
+         image.name, width, image_width])
+    asserts.extend([height_assert, width_assert])
+
+  # Create a random bounding box.
+  #
+  # Use tf.random_uniform and not numpy.random.rand as doing the former would
+  # generate random numbers at graph eval time, unlike the latter which
+  # generates random numbers at graph definition time.
+  with tf.control_dependencies(asserts):
+    max_offset_height = tf.reshape(image_height - crop_height + 1, [])
+  with tf.control_dependencies(asserts):
+    max_offset_width = tf.reshape(image_width - crop_width + 1, [])
+  offset_height = tf.random_uniform(
+      [], maxval=max_offset_height, dtype=tf.int32)
+  offset_width = tf.random_uniform(
+      [], maxval=max_offset_width, dtype=tf.int32)
+
+  return [_crop(image, offset_height, offset_width,
+                crop_height, crop_width) for image in image_list]
+
+
 def distorted_bounding_box_crop(image,
                                 bbox,
                                 min_object_covered=0.1,
@@ -154,9 +237,12 @@ def distorted_bounding_box_crop(image,
 
 
 def preprocess_for_train(image, height, width, bbox,
+                         resized=False, 
                          fast_mode=True,
                          scope=None,
-                         add_image_summaries=True):
+                         distort_color=True,
+                         add_image_summaries=True,
+                         **kwargs):
   """Distort one image for training a network.
 
   Distorting images provides a useful technique for augmenting the data
@@ -190,34 +276,48 @@ def preprocess_for_train(image, height, width, bbox,
                          shape=[1, 1, 4])
     if image.dtype != tf.float32:
       image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-    # Each bounding box has shape [1, num_boxes, box coords] and
-    # the coordinates are ordered [ymin, xmin, ymax, xmax].
-    image_with_box = tf.image.draw_bounding_boxes(tf.expand_dims(image, 0),
+
+    if add_image_summaries:  
+      # Each bounding box has shape [1, num_boxes, box coords] and
+      # the coordinates are ordered [ymin, xmin, ymax, xmax].
+      image_with_box = tf.image.draw_bounding_boxes(tf.expand_dims(image, 0),
                                                   bbox)
-    if add_image_summaries:
       tf.summary.image('image_with_bounding_boxes', image_with_box)
 
-    distorted_image, distorted_bbox = distorted_bounding_box_crop(image, bbox)
-    # Restore the shape since the dynamic slice based upon the bbox_size loses
-    # the third dimension.
-    distorted_image.set_shape([None, None, 3])
-    image_with_distorted_box = tf.image.draw_bounding_boxes(
-        tf.expand_dims(image, 0), distorted_bbox)
-    if add_image_summaries:
-      tf.summary.image('images_with_distorted_bounding_box',
-                       image_with_distorted_box)
+    if resized:
+      # standard procedure is to resize to [256,256] then grab a [224,224] random crop
+      # random crop instead of distort
+      # just grab random crop
+      distorted_image = _random_crop([image], height, width)[0]
+      distorted_image.set_shape([height, width, 3])
+      distorted_image = tf.to_float(distorted_image)      
 
-    # This resizing operation may distort the images because the aspect
-    # ratio is not respected. We select a resize method in a round robin
-    # fashion based on the thread number.
-    # Note that ResizeMethod contains 4 enumerated resizing methods.
+    else:
+      distorted_image, distorted_bbox = distorted_bounding_box_crop(image, bbox,
+                                    min_object_covered=0.875,   # at least 225px
+                                    )
+      # Restore the shape since the dynamic slice based upon the bbox_size loses
+      # the third dimension.
+      distorted_image.set_shape([None, None, 3])
+      image_with_distorted_box = tf.image.draw_bounding_boxes(
+          tf.expand_dims(image, 0), distorted_bbox)
+      if add_image_summaries:
+        tf.summary.image('images_with_distorted_bounding_box',
+                        image_with_distorted_box)
 
-    # We select only 1 case for fast_mode bilinear.
-    num_resize_cases = 1 if fast_mode else 4
-    distorted_image = apply_with_random_selector(
-        distorted_image,
-        lambda x, method: tf.image.resize_images(x, [height, width], method),
-        num_cases=num_resize_cases)
+      
+
+      # This resizing operation may distort the images because the aspect
+      # ratio is not respected. We select a resize method in a round robin
+      # fashion based on the thread number.
+      # Note that ResizeMethod contains 4 enumerated resizing methods.
+
+      # We select only 1 case for fast_mode bilinear.
+      num_resize_cases = 1 if fast_mode else 4
+      distorted_image = apply_with_random_selector(
+          distorted_image,
+          lambda x, method: tf.image.resize_images(x, [height, width], method),
+          num_cases=num_resize_cases)
 
     if add_image_summaries:
       tf.summary.image('cropped_resized_image',
@@ -227,10 +327,11 @@ def preprocess_for_train(image, height, width, bbox,
     distorted_image = tf.image.random_flip_left_right(distorted_image)
 
     # Randomly distort the colors. There are 4 ways to do it.
-    distorted_image = apply_with_random_selector(
-        distorted_image,
-        lambda x, ordering: distort_color(x, ordering, fast_mode),
-        num_cases=4)
+    if distort_color:
+      distorted_image = apply_with_random_selector(
+          distorted_image,
+          lambda x, ordering: distort_color(x, ordering, fast_mode),
+          num_cases=4)
 
     if add_image_summaries:
       tf.summary.image('final_distorted_image',
@@ -241,7 +342,7 @@ def preprocess_for_train(image, height, width, bbox,
 
 
 def preprocess_for_eval(image, height, width,
-                        central_fraction=0.875, scope=None):
+                        central_fraction=0.875, scope=None, **kwargs):
   """Prepare one image for evaluation.
 
   If height and width are specified it would output an image with that size by
@@ -285,7 +386,8 @@ def preprocess_image(image, height, width,
                      is_training=False,
                      bbox=None,
                      fast_mode=True,
-                     add_image_summaries=True):
+                     resized=False,
+                     **kwargs):
   """Pre-process one image for training or evaluation.
 
   Args:
@@ -311,7 +413,10 @@ def preprocess_image(image, height, width,
     ValueError: if user does not provide bounding box
   """
   if is_training:
-    return preprocess_for_train(image, height, width, bbox, fast_mode,
-                                add_image_summaries=add_image_summaries)
+    print(','.join('{0}={1!r}'.format(k,v) for k,v in kwargs.items()))
+    return preprocess_for_train(image, height, width, bbox, 
+                                fast_mode=fast_mode,
+                                **kwargs)
   else:
-    return preprocess_for_eval(image, height, width)
+    return preprocess_for_eval(image, height, width,
+                                **kwargs)
