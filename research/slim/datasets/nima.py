@@ -29,7 +29,7 @@ def load_batch(dataset, batch_size=32, height=224, width=224,
     data_provider = slim.dataset_data_provider.DatasetDataProvider(
         dataset, common_queue_capacity=32,
         common_queue_min=8)
-    image_raw, label = data_provider.get(['image', label_name])
+    image_raw, label, orig_height, orig_width = data_provider.get(['image', label_name, 'height', 'width'])
     
     # Preprocess image for usage by the appropriate model.
     # we assume the AVA ratings are from the full, undistorted image, so it does
@@ -59,13 +59,13 @@ def load_batch(dataset, batch_size=32, height=224, width=224,
       raise RuntimeError("preprocessing is not configured")
 
     # Preprocess the image for display purposes.
-    if resize_raw:
-      image_raw = tf.expand_dims(image_raw, 0)
-      image_raw = tf.image.resize_images(image_raw, [height, width])
-      image_raw = tf.squeeze(image_raw)
-    else:
-      # hardcoded for NiMA
-      image_raw = tf.reshape(image_raw,[256,256,3])  
+
+    # if not resize_raw:
+    #   height, width = [orig_height, orig_width]  # error 'size' must be a 1-D int32 Tensor
+
+    image_raw = tf.expand_dims(image_raw, 0)
+    image_raw = tf.image.resize_images(image_raw, [height, width])
+    image_raw = tf.squeeze(image_raw)  
 
 
     # Batch it up.
