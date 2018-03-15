@@ -9,7 +9,7 @@ def load_batch(dataset, batch_size=32, height=224, width=224,
             is_training=False, 
             model="vgg16",
             resized=True,
-            resize_raw=True,
+            include_raw_images=True,
             label_name="ratings"):
     """Loads a single batch of data.
     
@@ -19,11 +19,14 @@ def load_batch(dataset, batch_size=32, height=224, width=224,
       height: The size of each image after preprocessing.
       width: The size of each image after preprocessing.
       is_training: Whether or not we're currently training or evaluating.
+      model: [vgg16 | inception]
       resized: Whether the TFRecords were converted with images already resized to (256,256,3)
+      include_raw_images: Boolean, include resized raw images. 
+      ## TODO: figure out how to return an empty set for images_raw
     
     Returns:
       images: A Tensor of size [batch_size, height, width, 3], image samples that have been preprocessed.
-      images_raw: A Tensor of size [batch_size, height, width, 3], image samples that can be used for visualization.
+      images_raw: (optional) A Tensor of size [batch_size, height, width, 3], image samples that can be used for visualization. 
       labels: A Tensor of size [batch_size], whose values range between 0 and dataset.num_classes.
     """
     data_provider = slim.dataset_data_provider.DatasetDataProvider(
@@ -62,17 +65,25 @@ def load_batch(dataset, batch_size=32, height=224, width=224,
 
     # if not resize_raw:
     #   height, width = [orig_height, orig_width]  # error 'size' must be a 1-D int32 Tensor
+    if include_raw_images:
+      image_raw = tf.expand_dims(image_raw, 0)
+      image_raw = tf.image.resize_images(image_raw, [height, width])
+      image_raw = tf.squeeze(image_raw)  
 
-    image_raw = tf.expand_dims(image_raw, 0)
-    image_raw = tf.image.resize_images(image_raw, [height, width])
-    image_raw = tf.squeeze(image_raw)  
+      # Batch it up.
+      images, images_raw, labels = tf.train.batch(
+            [image, image_raw, label],
+            batch_size=batch_size,
+            num_threads=1,
+            capacity=2 * batch_size)
+      return images, images_raw, labels
 
-
-    # Batch it up.
-    images, images_raw, labels = tf.train.batch(
-          [image, image_raw, label],
-          batch_size=batch_size,
-          num_threads=1,
-          capacity=2 * batch_size)
+    else:
+      # Batch it up. Save resources by ignoring image_raw
+      images, labels = tf.train.batch(
+            [image, label],
+            batch_size=batch_size,
+            num_threads=1,
+            capacity=2 * batch_size)
+      return images, labels
     
-    return images, images_raw, labels
