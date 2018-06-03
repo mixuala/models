@@ -240,7 +240,7 @@ def preprocess_for_train(image, height, width, bbox,
                          resized=False, 
                          fast_mode=True,
                          scope=None,
-                         distort_color=True,
+                         apply_distort_color=True,
                          add_image_summaries=True,
                          **kwargs):
   """Distort one image for training a network.
@@ -276,12 +276,11 @@ def preprocess_for_train(image, height, width, bbox,
                          shape=[1, 1, 4])
     if image.dtype != tf.float32:
       image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-
-    if add_image_summaries:  
-      # Each bounding box has shape [1, num_boxes, box coords] and
-      # the coordinates are ordered [ymin, xmin, ymax, xmax].
-      image_with_box = tf.image.draw_bounding_boxes(tf.expand_dims(image, 0),
+    # Each bounding box has shape [1, num_boxes, box coords] and
+    # the coordinates are ordered [ymin, xmin, ymax, xmax].
+    image_with_box = tf.image.draw_bounding_boxes(tf.expand_dims(image, 0),
                                                   bbox)
+    if add_image_summaries:
       tf.summary.image('image_with_bounding_boxes', image_with_box)
 
     if resized:
@@ -293,9 +292,7 @@ def preprocess_for_train(image, height, width, bbox,
       distorted_image = tf.to_float(distorted_image)      
 
     else:
-      distorted_image, distorted_bbox = distorted_bounding_box_crop(image, bbox,
-                                    min_object_covered=0.875,   # at least 225px
-                                    )
+      distorted_image, distorted_bbox = distorted_bounding_box_crop(image, bbox)
       # Restore the shape since the dynamic slice based upon the bbox_size loses
       # the third dimension.
       distorted_image.set_shape([None, None, 3])
@@ -304,8 +301,6 @@ def preprocess_for_train(image, height, width, bbox,
       if add_image_summaries:
         tf.summary.image('images_with_distorted_bounding_box',
                         image_with_distorted_box)
-
-      
 
       # This resizing operation may distort the images because the aspect
       # ratio is not respected. We select a resize method in a round robin
@@ -326,12 +321,13 @@ def preprocess_for_train(image, height, width, bbox,
     # Randomly flip the image horizontally.
     distorted_image = tf.image.random_flip_left_right(distorted_image)
 
-    # Randomly distort the colors. There are 4 ways to do it.
-    if distort_color:
+    if apply_distort_color:
+      # Randomly distort the colors. There are 1 or 4 ways to do it.
+      num_distort_cases = 1 if fast_mode else 4
       distorted_image = apply_with_random_selector(
           distorted_image,
           lambda x, ordering: distort_color(x, ordering, fast_mode),
-          num_cases=4)
+          num_cases=num_distort_cases)
 
     if add_image_summaries:
       tf.summary.image('final_distorted_image',
@@ -342,7 +338,7 @@ def preprocess_for_train(image, height, width, bbox,
 
 
 def preprocess_for_eval(image, height, width,
-                        central_fraction=0.875, scope=None, **kwargs):
+                        central_fraction=0.875, scope=None):
   """Prepare one image for evaluation.
 
   If height and width are specified it would output an image with that size by
@@ -387,7 +383,7 @@ def preprocess_image(image, height, width,
                      bbox=None,
                      fast_mode=True,
                      resized=False,
-                     **kwargs):
+                     **kwargs):                     
   """Pre-process one image for training or evaluation.
 
   Args:
@@ -413,10 +409,9 @@ def preprocess_image(image, height, width,
     ValueError: if user does not provide bounding box
   """
   if is_training:
-    print(','.join('{0}={1!r}'.format(k,v) for k,v in kwargs.items()))
-    return preprocess_for_train(image, height, width, bbox, 
-                                fast_mode=fast_mode,
-                                **kwargs)
+    return preprocess_for_train(image, height, width, bbox,
+                                fast_mode=fast_mode,    
+                                **kwargs)    
   else:
     return preprocess_for_eval(image, height, width,
-                                **kwargs)
+                                **kwargs)    

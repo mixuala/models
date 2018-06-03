@@ -48,9 +48,11 @@ import os
 import tensorflow as tf
 
 from object_detection import evaluator
-from object_detection.builders import input_reader_builder
+from object_detection.builders import dataset_builder
+from object_detection.builders import graph_rewriter_builder
 from object_detection.builders import model_builder
 from object_detection.utils import config_util
+from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
 
 
@@ -103,19 +105,20 @@ def main(unused_argv):
 
   model_config = configs['model']
   eval_config = configs['eval_config']
+  input_config = configs['eval_input_config']
   if FLAGS.eval_training_data:
     input_config = configs['train_input_config']
-  else:
-    input_config = configs['eval_input_config']
 
   model_fn = functools.partial(
       model_builder.build,
       model_config=model_config,
       is_training=False)
 
-  create_input_dict_fn = functools.partial(
-      input_reader_builder.build,
-      input_config)
+  def get_next(config):
+    return dataset_util.make_initializable_iterator(
+        dataset_builder.build(config)).get_next()
+
+  create_input_dict_fn = functools.partial(get_next, input_config)
 
   label_map = label_map_util.load_labelmap(input_config.label_map_path)
   max_num_classes = max([item.id for item in label_map.item])
@@ -125,8 +128,19 @@ def main(unused_argv):
   if FLAGS.run_once:
     eval_config.max_evals = 1
 
-  evaluator.evaluate(create_input_dict_fn, model_fn, eval_config, categories,
-                     FLAGS.checkpoint_dir, FLAGS.eval_dir)
+  graph_rewriter_fn = None
+  if 'graph_rewriter_config' in configs:
+    graph_rewriter_fn = graph_rewriter_builder.build(
+        configs['graph_rewriter_config'], is_training=False)
+
+  evaluator.evaluate(
+      create_input_dict_fn,
+      model_fn,
+      eval_config,
+      categories,
+      FLAGS.checkpoint_dir,
+      FLAGS.eval_dir,
+      graph_hook_fn=graph_rewriter_fn)
 
 
 if __name__ == '__main__':
